@@ -40,19 +40,10 @@
     - [3.1 Claude Code CLI](#31-claude-code-cli)
       - [3.1.1 前置条件](#311-前置条件)
       - [3.1.2 第一步：安装插件](#312-第一步安装插件)
-      - [3.1.3 第二步：运行配置向导](#313-第二步运行配置向导)
-      - [3.1.4 第三步：补充认证信息](#314-第三步补充认证信息)
-      - [3.1.5 第四步：验证](#315-第四步验证)
-      - [3.1.6 配置项说明](#316-配置项说明)
-        - [3.1.6.1 关于实验 ID](#3161-关于实验-id)
-        - [3.1.6.2 关于模型价格目录](#3162-关于模型价格目录)
+      - [3.1.3 第二步：设置环境变量，更新 Claude Code 的配置文件](#313-第二步设置环境变量更新-claude-code-的配置文件)
+      - [3.1.4 配置项说明](#314-配置项说明)
+      - [3.1.5 关于模型价格目录（仅自定义大模型需要）](#315-关于模型价格目录仅自定义大模型需要)
     - [3.2 Codex CLI](#32-codex-cli)
-      - [3.2.1 前置条件](#321-前置条件)
-      - [3.2.2 第一步：安装插件](#322-第一步安装插件)
-      - [3.2.3 第二步：运行配置向导](#323-第二步运行配置向导)
-      - [3.2.4 第三步：补充认证信息](#324-第三步补充认证信息)
-      - [3.2.5 第四步：验证](#325-第四步验证)
-      - [3.2.6 可选：改用原生 OTLP 上报](#326-可选改用原生-otlp-上报)
     - [3.3 其他官方支持的客户端](#33-其他官方支持的客户端)
   - [4. MLflow 官方暂不支持的 Agent Client 接入](#4-mlflow-官方暂不支持的-agent-client-接入)
     - [4.1 初级：启用 GitHub Copilot 本地 Agent Debug Logs](#41-初级启用-github-copilot-本地-agent-debug-logs)
@@ -159,7 +150,8 @@ MLflow 在本场景中主要提供：
 ## 3. MLflow 官方已支持的 Agent Client 快速接入
 
 MLflow 官方为一批 Agent Client 直接提供了接入插件，接入成本最低：安装插件、配置 tracking URI 与实验 ID 即可，
-**无需自行搭建 Collector**。本节覆盖 Claude Code CLI 与 Codex CLI，其他官方支持的客户端见 [3.3 其他官方支持的客户端](#33-其他官方支持的客户端)。
+**无需自行搭建 Collector**。本文档只展开 **Claude Code CLI** 的完整接入步骤（3.1），
+Codex CLI 与其余官方支持的客户端只做要点说明并给出官方文档入口，见 [3.2](#32-codex-cli)、[3.3](#33-其他官方支持的客户端)。
 
 ### 3.1 Claude Code CLI
 
@@ -195,61 +187,18 @@ claude plugin install mlflow-tracing@mlflow-plugins
 
 安装完成后运行 `claude` 启动（或重启）Claude Code，使插件生效。
 
-#### 3.1.3 第二步：运行配置向导
+#### 3.1.3 第二步：设置环境变量，更新 Claude Code 的配置文件
 
-在 Claude Code 中执行：
-
-```text
-/mlflow-tracing:setup
-```
-
-向导会要求提供三个值：
-
-| 配置项 | 说明 |
-| --- | --- |
-| Tracking URI | MLflow Server 地址，通常为绝对的 `http://` 或 `https://` URL；Databricks 场景可填 `databricks` 或 `databricks://...` |
-| Experiment | 实验的整数 ID（`--experiment-id`），或实验名称（`--experiment-name`）；两者只能选一个 |
-| Scope | 配置写入的位置：project 或 user |
-
-Scope 对应关系：
-
-| Scope | 写入文件 | 适用场景 |
-| --- | --- | --- |
-| `project` | `./.claude/settings.json` | 只对当前仓库生效，可随仓库共享非敏感配置 |
-| `user` | `~/.claude/settings.json` | 对所有仓库生效，适合放置个人凭据 |
-
-向导只询问上表的三个必填值。如使用 Databricks Unity Catalog，可在 setup 命令中追加
-`--trace-location catalog.schema.table_prefix`；需要指定 MLflow workspace 时追加
-`--workspace <name>`。两者分别对应 `MLFLOW_TRACE_LOCATION` 和 `MLFLOW_WORKSPACE`，
-不配置时使用服务端默认值。
-
-> 如果使用 `--experiment-name`，向导会在配置阶段调用 MLflow 按名称解析或创建实验，
-> 因此需要提前在 `~/.bash_profile` 中设置认证变量
-> （`MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD`，或 `MLFLOW_TRACKING_TOKEN`）
-> 并让它对启动 Claude Code 的进程生效（见 [3.1.4](#314-第三步补充认证信息)），
-> 否则这一步会因 401 失败。使用 `--experiment-id` 时不会联网解析，
-> 可以先完成向导再补充凭据。
->
-> ⚠️ 插件只识别 `./.claude/settings.json`（project）和 `~/.claude/settings.json`（user）。
-> `.claude/settings.local.json` 虽然会被 Claude Code 加载，但插件不会直接读取它，
-> 排查问题时容易误判。请统一使用上面两个文件。
-
-#### 3.1.4 第三步：补充认证信息
-
-配置向导只写入 tracing 相关键，不处理用户名和密码。若 MLflow 开启了 Basic Auth，
-**凭据写入本机 shell 启动文件（`~/.bash_profile`），不要写进 settings 文件**：
-project scope 的 `settings.json` 通常随仓库提交，写进去等于把密码提交到版本库。
-
+添加上传数据给 MLflow 所需的身份认证信息为环境变量：
 ```bash
 # ~/.bash_profile
 export MLFLOW_TRACKING_USERNAME="<username>"
 export MLFLOW_TRACKING_PASSWORD="<password>"
-# 或使用 Token：export MLFLOW_TRACKING_TOKEN="<token>"
 ```
 
 改完执行 `source ~/.bash_profile`（或新开一个终端）使其生效。
 
-环境变量的优先级高于 settings 文件，settings 只需保留非敏感键：
+更新Claude Code 用户或项目层级的 ~/.claude/settings.json 或 workspace/.claude/settings.json 文件，settings 只需保留非敏感键：
 
 ```json
 {
@@ -261,63 +210,10 @@ export MLFLOW_TRACKING_PASSWORD="<password>"
 }
 ```
 
-凭据只存在于本机用户目录，不随仓库发布。若终端启动的不是登录 shell（部分 Linux 发行版），
-`~/.bash_profile` 不会被读取，此时改写入 `~/.bashrc`；企业环境也可由 systemd
-`EnvironmentFile`、Kubernetes Secret、密钥管理服务统一注入。
+> 接入自定义大模型时，需再加 `MLFLOW_MODEL_CATALOG_URI` 与 `MLFLOW_MODEL_CATALOG_CACHE_TTL`
+> 两项，否则费用显示为空，见 [3.1.5](#315-关于模型价格目录仅自定义大模型需要)。
 
-> ⚠️ 凭据必须注入到**启动 `claude` 的进程环境**：改完 `~/.bash_profile` 要 `source`
-> 或新开终端使其生效，并重启 `claude`；在 Claude Code 会话内 `export` 不会影响
-> 已经启动的进程。
-
-如果使用实验名称而不是 ID：
-
-```json
-{
-  "env": {
-    "MLFLOW_CLAUDE_TRACING_ENABLED": "true",
-    "MLFLOW_TRACKING_URI": "http://10.203.2.87:5000/",
-    "MLFLOW_EXPERIMENT_NAME": "claude-code"
-  }
-}
-```
-
-`MLFLOW_EXPERIMENT_ID` 与 `MLFLOW_EXPERIMENT_NAME` 二选一。配置 CLI 不允许同时传入；
-若通过不同配置层或环境变量同时提供了两者，运行时以 ID 为准。
-
-使用向导的 `--experiment-name` 时，插件会先按名称查找实验（不存在则创建），
-再把解析出的整数 ID 与名称一起写入配置，因此 `.claude/settings.json` 中会同时出现两者；
-手工配置时只写 `MLFLOW_EXPERIMENT_NAME` 也可以。
-
-#### 3.1.5 第四步：验证
-
-```text
-/mlflow-tracing:status
-```
-
-正常情况下会看到：
-
-```text
-MLflow Tracing Status
-
-  Enabled: true
-  Source: project
-  Settings file: /path/to/project/.claude/settings.json
-  Tracking URI: http://10.203.2.87:5000/
-  Experiment ID: <experiment-id>
-  Experiment name: <experiment-name 或 not set>
-  Workspace: not set
-```
-
-`Source` 表示配置来源：`environment`（环境变量）、`project`、`user` 或 `none`。
-若为 `none`，说明插件没有读到任何配置。
-
-然后运行一次简短的 Claude Code 会话并退出，打开 MLflow 中对应实验的 **Traces** 页面，
-应能看到这次会话的 trace。
-
-> Trace 由 `Stop` 钩子上报。若刚结束会话仍未看到，先刷新页面；
-> 仍无数据时按 [6.1 Claude Code](#61-claude-code) 逐项排查。
-
-#### 3.1.6 配置项说明
+#### 3.1.4 配置项说明
 
 | 环境变量 | 必填 | 说明 |
 | --- | --- | --- |
@@ -330,230 +226,93 @@ MLflow Tracing Status
 | `MLFLOW_TRACKING_TOKEN` | 视部署而定 | Bearer Token；与用户名/密码二选一 |
 | `MLFLOW_TRACE_LOCATION` | 否 | Databricks Unity Catalog 的 trace 存储位置，格式 `catalog.schema.table_prefix` |
 | `MLFLOW_WORKSPACE` | 否 | MLflow workspace 名称；未设置时使用服务端默认 workspace |
-| `MLFLOW_MODEL_CATALOG_URI` | 否 | 模型价格目录的基地址，默认使用 MLflow 官方目录 |
-| `MLFLOW_MODEL_CATALOG_CACHE_TTL` | 否 | 价格缓存秒数，默认 `86400`；`0` 表示不读取缓存，每次都重新拉取 |
+| `MLFLOW_MODEL_CATALOG_URI` | 否 | 模型价格目录的基地址。**仅在使用自定义大模型时才需要**（见 [3.1.5](#315-关于模型价格目录仅自定义大模型需要)），默认使用 MLflow 官方目录 |
+| `MLFLOW_MODEL_CATALOG_CACHE_TTL` | 否 | 价格缓存秒数，默认 `86400`；`0` 表示不读取缓存，每次都重新拉取。同样只在自定义价格目录时才需要关注 |
 
 > ⚠️ 上表中三个凭据项（`MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` /
 > `MLFLOW_TRACKING_TOKEN`）应只通过 `~/.bash_profile` 等本机 shell 启动文件
-> 或密钥管理服务提供，不要写进 `settings.json`。同名时环境变量优先于 settings 文件
-> （详见 [3.1.4](#314-第三步补充认证信息)）。
+> 或密钥管理服务提供，不要写进 `settings.json`。同名时环境变量优先于 `settings.json` 中的值。
 
-##### 3.1.6.1 关于实验 ID
+#### 3.1.5 关于模型价格目录（仅自定义大模型需要）
 
-`MLFLOW_EXPERIMENT_ID` 必须是实验的**整数 ID**，例如 `1`、`42`。
-JSON 中需要写成字符串（环境变量只能是字符串），但内容必须是纯数字。
+`MLFLOW_MODEL_CATALOG_URI` 和 `MLFLOW_MODEL_CATALOG_CACHE_TTL` **默认不需要配置**。
 
-实验 ID 可以从 MLflow UI 的实验页 URL 中获取（`experiments/` 后面的数字），
-也可以在已配置 MLflow 的环境中执行 `mlflow experiments search` 查询。
+用 Anthropic 官方模型时，这两项与成本统计都无需关心：插件默认从 MLflow 官方目录拉取
+`anthropic.json`（失败时回退到插件内置的价格快照），覆盖 `claude-sonnet-5`、`claude-opus-4-5`
+等常见模型；拉取结果缓存在 `~/.mlflow/model_catalog_cache/anthropic.json`，默认缓存 24 小时。
 
-> `--experiment-id` 只接受**已存在**的实验 ID，插件不会解析名称，也不会自动创建实验；
-> 把名称传给该选项不会立即报错，但 trace 最终无法写入你预期的位置。
-> 需要按名称定位或让插件自动创建实验时，请改用 `--experiment-name`
-> （对应 `MLFLOW_EXPERIMENT_NAME`）。
+**只有接入自定义大模型时才需要自行配置**。原因是插件按 trace 中记录的**模型名**精确
+查价格（仅额外兼容把 `-20260901` 这类日期后缀去掉、按家族别名匹配），自定义模型名
+（例如私有网关暴露的 `glm-5.x`）不在官方目录中，费用会显示为空。
 
-##### 3.1.6.2 关于模型价格目录
-
-`MLFLOW_MODEL_CATALOG_URI` 和 `MLFLOW_MODEL_CATALOG_CACHE_TTL` **不是必填项**，
-不配置也能正常统计常见 Anthropic 模型的成本：
-
-1. 插件默认从 MLflow 官方发布的模型目录拉取 `anthropic.json`；
-2. 拉取结果缓存在 `~/.mlflow/model_catalog_cache/anthropic.json`，默认缓存 24 小时；
-3. 拉取失败或未命中时，回退到插件内置的 Anthropic 价格快照。
-
-只有在以下场景才需要自行配置：
-
-- **离线 / 内网环境**：把价格文件放到本地目录，并将 `MLFLOW_MODEL_CATALOG_URI` 指向该目录，
-  例如 `file:///opt/mlflow/model-catalog`；
-- **自定义价格**：需要覆盖官方价格时，维护自己的 `anthropic.json`；
-- **关闭远程查询**：把 `MLFLOW_MODEL_CATALOG_URI` 设为空字符串。
-
-注意：插件只会读取基地址下的 `anthropic.json`，因此该目录中必须直接存在这个文件；
-目录结构不是按 provider 分子目录。
-
-```text
-model-catalog/
-└── anthropic.json
-```
-
-`MLFLOW_MODEL_CATALOG_CACHE_TTL` 单位为秒，默认 `86400`；设为 `0` 表示每次都重新读取，
-适合调整价格后立即验证。拉取失败的结果也会按同一 TTL 缓存，避免离线环境每次启动都等待
-网络超时。未知模型没有价格数据，费用会显示为空，而不是 `0`。
-
-### 3.2 Codex CLI
-
-Codex CLI 通过 MLflow 官方 npm 包 `@mlflow/codex` 接入，同样不需要本地安装 Python 或 MLflow SDK。
-插件向 Codex 的 `config.toml` 注册 `notify` 钩子，Codex 在**每轮对话结束**时调用该钩子，
-把该轮的提示词、响应、工具调用与 token 用量上报到 MLflow——**每轮一条 trace，无需等会话结束**。
-
-```mermaid
-flowchart LR
-    A["Codex CLI"] --> B["mlflow-codex<br/>(notify 钩子)"]
-    B -->|"MLflow SDK"| C["MLflow Server"]
-    C --> D["Experiment<br/>Traces"]
-```
-
-> 与 Claude Code 相同，Codex 直接上报 MLflow，不经过 Collector，
-> 因此不受 [4.2.1.3 数据流与实验路由](#4213-数据流与实验路由) 中 routing 规则的影响，
-> 写入哪个实验由本节的配置决定。
-
-#### 3.2.1 前置条件
-
-- 已安装并可使用 Codex CLI（`codex` 命令可用）；
-- Node.js 18 或更新版本（MLflow 官方要求）；
-- 已开通 MLflow 个人账号，并拿到 tracking URI；
-- 已有一个实验的**整数 ID**（Codex 插件不接受实验名称，也不会自动创建实验）；
-- 本机可以访问 MLflow Server。
-
-#### 3.2.2 第一步：安装插件
-
-```bash
-npm install -g @mlflow/codex
-```
-
-安装后提供 `mlflow-codex` 命令。不想全局安装时可以用 `npx` 调用，例如
-`npx @mlflow/codex setup`，后续命令同样适用。
-
-```bash
-which mlflow-codex   # 确认命令已进入 PATH
-```
-
-#### 3.2.3 第二步：运行配置向导
-
-```text
-mlflow-codex setup
-```
-
-向导依次询问三项：
-
-| 配置项 | 说明 |
-| --- | --- |
-| Scope | 配置写入的位置：`Project`（`./.codex/`，默认）或 `User`（`~/.codex/`） |
-| MLflow tracking URI | MLflow Server 地址，默认 `http://localhost:5000` |
-| MLflow experiment ID | 实验的整数 ID，默认 `0` |
-
-Scope 对应关系：
-
-| Scope | 写入文件 | 适用场景 |
-| --- | --- | --- |
-| `Project` | `./.codex/config.toml`、`./.codex/mlflow-tracing.json` | 只对当前项目生效，配置可随项目共享 |
-| `User` | `~/.codex/config.toml`、`~/.codex/mlflow-tracing.json` | 对所有项目生效 |
-
-需要脚本化或批量部署时使用非交互模式：
-
-```bash
-mlflow-codex setup -y --tracking-uri http://10.203.2.87:5000 --experiment-id <experiment-id>
-```
-
-| 参数 | 说明 |
-| --- | --- |
-| `--project` / `-p` | 写入 `./.codex/`，跳过 Scope 询问 |
-| `--non-interactive` / `-y` | 全部使用参数值或默认值，不进入交互 |
-| `--tracking-uri <url>` | 指定 tracking URI |
-| `--experiment-id <id>` | 指定实验的整数 ID |
-| `--trace-location <loc>` | Databricks Unity Catalog 的 trace 存储位置，格式 `catalog.schema.table_prefix` |
-
-向导写入 `.codex/config.toml`：
-
-```toml
-notify = ["mlflow-codex", "notify-hook"]
-```
-
-以及 `.codex/mlflow-tracing.json`（保存 MLflow 配置，让钩子无需 shell 变量即可运行）：
+此时自己维护一份 `anthropic.json`，把自定义模型的单价写进去：
 
 ```json
 {
-  "trackingUri": "http://10.203.2.87:5000",
-  "experimentId": "<experiment-id>"
+  "schema_version": "1.0",
+  "models": {
+    "deepseek-v4.1-flash-foxit": {
+      "mode": "chat",
+      "pricing": {
+        "input_per_million_tokens": 0.30,
+        "output_per_million_tokens": 1.20,
+        "cache_read_per_million_tokens": 0.006,
+        "cache_write_per_million_tokens": 0
+      }
+    },
+    "deepseek-v4.1-flash": {
+      "mode": "chat",
+      "pricing": {
+        "input_per_million_tokens": 0.30,
+        "output_per_million_tokens": 1.20,
+        "cache_read_per_million_tokens": 0.006,
+        "cache_write_per_million_tokens": 0
+      }
+    },
+  }
 }
 ```
 
-> ⚠️ setup **不会覆盖已存在的 `notify = ...` 条目**，以免破坏你原有的配置。
-> 如果 `config.toml` 里已经注册了其他通知器，setup 会跳过这一步，钩子不会被注册；
-> 此时需要在 `config.toml` 中自行加入 `notify = ["mlflow-codex", "notify-hook"]`
-> （`notify` 只接受一个条目，如与原通知器冲突，需要自行取舍）。
->
-> ⚠️ 与 Claude Code 插件不同，Codex 侧**只接受已存在实验的整数 ID**，
-> 不支持按名称解析，也不会自动创建实验。请先在 MLflow UI 中建好实验并取其 ID。
+再把 `MLFLOW_MODEL_CATALOG_URI` 指向该目录：
 
-每轮 trace 的根 span 名为 `codex_conversation`，并带有 `mlflow.trace.session`
-（Codex 的 `thread-id`，用于在 MLflow 中把同一会话的多个轮次串起来）与
-`mlflow.trace.user`（发起进程的操作系统用户名）两项元数据。
-
-#### 3.2.4 第三步：补充认证信息
-
-若 MLflow 开启了 Basic Auth，把凭据写入 `~/.bash_profile`（做法与
-[3.1.4](#314-第三步补充认证信息) 一致，同样不要写进任何随仓库提交的文件）：
-
-```bash
-# ~/.bash_profile
-export MLFLOW_TRACKING_USERNAME="<username>"
-export MLFLOW_TRACKING_PASSWORD="<password>"
-# 或使用 Token：export MLFLOW_TRACKING_TOKEN="<token>"
+```json
+{
+  "env": {
+    "MLFLOW_MODEL_CATALOG_URI": "file:///opt/mlflow/model-catalog",
+    "MLFLOW_MODEL_CATALOG_CACHE_TTL": "0"
+  }
+}
 ```
 
-改完执行 `source ~/.bash_profile`（或新开一个终端）再启动 `codex`。
+几点注意：
 
-| 环境变量 | 必填 | 说明 |
-| --- | --- | --- |
-| `MLFLOW_TRACKING_URI` | 否 | 覆盖 `mlflow-tracing.json` 中的 `trackingUri` |
-| `MLFLOW_EXPERIMENT_ID` | 否 | 覆盖 `mlflow-tracing.json` 中的 `experimentId` |
-| `MLFLOW_TRACKING_USERNAME` | 视部署而定 | Basic Auth 用户名 |
-| `MLFLOW_TRACKING_PASSWORD` | 视部署而定 | Basic Auth 密码 |
-| `MLFLOW_TRACKING_TOKEN` | 视部署而定 | Bearer Token；与用户名/密码二选一 |
-| `MLFLOW_WORKSPACE` | 否 | MLflow workspace 名称；未设置时使用服务端默认 workspace |
-| `MLFLOW_TRACE_LOCATION` | 否 | Databricks Unity Catalog 的 trace 存储位置，格式 `catalog.schema.table_prefix` |
+- 目录下必须**直接**存在 `anthropic.json`，不是按 provider 分子目录：
 
-配置解析顺序（先命中者优先，可用于临时切换环境）：
+  ```text
+  model-catalog/
+  └── anthropic.json
+  ```
 
-1. 环境变量 `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT_ID`；
-2. 项目级 `./.codex/mlflow-tracing.json`；
-3. 用户级 `~/.codex/mlflow-tracing.json`。
+- 自定义的 `anthropic.json` 会**整体替换**官方目录，不会与官方价格合并。如果同一环境里
+  还在用官方模型（例如 `claude-sonnet-5`），需要把这些模型的价格条目也一并写进这份文件，
+  否则它们的费用会变成空。
+- `MLFLOW_MODEL_CATALOG_CACHE_TTL` 单位为秒，默认 `86400`；调完价格想立即生效就设为 `0`。
+- 拉取失败的结果也会按同一 TTL 缓存，避免离线环境每次启动都等待网络超时。
+- 未命中价格的模型费用显示为空，而不是 `0`。
 
-```bash
-# 单次覆盖，例如临时切换实验
-MLFLOW_EXPERIMENT_ID=7 codex "帮我重构这个函数"
-```
+### 3.2 Codex CLI
 
-> ⚠️ `mlflow-tracing.json` 只保存 tracking URI 与实验 ID，不保存凭据；凭据一律通过环境变量注入。
-> 项目级 `.codex/` 通常随仓库提交，不要在其中写入任何凭据。
+Codex CLI 的接入方式与 3.1 同构：MLflow 官方 npm 包 `@mlflow/codex` 向 Codex 的
+`config.toml` 注册 `notify` 钩子，Codex 在**每轮对话结束**时把该轮的提示词、响应、
+工具调用与 token 用量上报到 MLflow——**每轮一条 trace，无需等会话结束**。
+同样直接上报 MLflow、不经过 Collector，因此写入哪个实验由 Codex 自身的配置决定，
+不受 [4.2.1.3 数据流与实验路由](#4213-数据流与实验路由) 中 routing 规则的影响。
 
-#### 3.2.5 第四步：验证
+安装步骤、`config.toml` 配置、认证信息写法、原生 OTLP 备选方案与排查方法，
+请直接参考 MLflow 官方文档，本文档不再重复：
 
-```bash
-codex "帮我重构这个函数"
-```
+- [MLflow：Tracing Codex CLI](https://mlflow.org/docs/latest/genai/tracing/integrations/listing/codex)
 
-每轮对话结束后，打开 MLflow 中对应实验的 **Traces** 页面，应能看到这一轮的 trace。
-排查时先确认下面四项：
-
-- 配置文件（`./.codex/config.toml` 或 `~/.codex/config.toml`）中存在
-  `notify = ["mlflow-codex", "notify-hook"]`；
-- `which mlflow-codex` 能解析到路径；
-- `mlflow-tracing.json` 存在，且 `trackingUri` / `experimentId` 指向预期位置；
-- Node.js 版本满足要求，且本机能访问 MLflow Server。
-
-> 仍无数据时按 [6.2 Codex](#62-codex) 逐项排查。
-
-#### 3.2.6 可选：改用原生 OTLP 上报
-
-Codex CLI 也支持在 `config.toml` 中配置原生 OpenTelemetry 上报：
-
-```toml
-[otel]
-exporter = { otlp-http = {
-  endpoint = "http://10.203.2.87:5000/v1/traces",
-  protocol = "binary",
-  headers = { "x-mlflow-experiment-id" = "<experiment-id>" }
-}}
-```
-
-> 官方说明：Codex 的原生 OTLP trace 捕获的是**内部执行细节**（websocket 连接、请求处理、
-> 工具调度），而不是干净的对话调用链。需要提示词、响应与工具结果的会话视图时，
-> 应使用上面的 `notify` 钩子方式；两者可以同时启用。
->
-> 把 `endpoint` 指向 Collector 的 OTLP/HTTP 端口（`4318`）也可以让 Codex 数据经 Collector
-> 统一采集，但此时写入哪个实验由 Collector 侧的 routing 规则决定，需按 Codex 实际上报的
-> 资源属性新增规则（方法见 [4.2.2.2 新增一个 MLflow 实验的路由](#新增一个-mlflow-实验的路由)）。
 
 ### 3.3 其他官方支持的客户端
 
@@ -1291,23 +1050,22 @@ ZCode 内置了一套 OTel 遥测运行时，也能通过标准 OTel 环境变�
 | --- | --- | --- |
 | `/mlflow-tracing:status` 显示 `Enabled: false` | 未配置或总开关为假 | 检查 `MLFLOW_CLAUDE_TRACING_ENABLED` 是否为 `true` / `1` / `yes` |
 | `Source: none` | 配置写在了插件不识别的位置 | 改用 `./.claude/settings.json` 或 `~/.claude/settings.json` |
-| MLflow 中看不到 trace | 会话未结束、实验 ID 错误、认证失败 | 退出会话后刷新；确认实验 ID 是整数；确认凭据已写入 `~/.bash_profile` 并 `source`/新开终端后重启 `claude`（见 [3.1.4](#314-第三步补充认证信息)） |
+| MLflow 中看不到 trace | 会话未结束、实验 ID 错误、认证失败 | 退出会话后刷新；确认实验 ID 是整数；确认凭据已写入 `~/.bash_profile` 并 `source`/新开终端后重启 `claude`（见 [3.1.3 第二步](#313-第二步设置环境变量更新-claude-code-的配置文件)） |
 | Trace 落到空实验或实验不存在 | 把实验名称填进了 `MLFLOW_EXPERIMENT_ID` | 改用整数 ID，或改填 `MLFLOW_EXPERIMENT_NAME` |
 | 配置被意外覆盖 | shell 中存在同名 `MLFLOW_*` 环境变量 | 环境变量优先级最高；清理 shell 配置后重启 |
-| 成本显示为空 | 模型不在价格目录中，或目录不可读 | 检查 `MLFLOW_MODEL_CATALOG_URI` 是否包含 `anthropic.json`；未知模型无价格 |
+| 成本显示为空 | 用了自定义大模型但没配价格目录，或目录不可读 | 自定义模型名不在官方目录中，需按 [3.1.5](#315-关于模型价格目录仅自定义大模型需要) 自建 `anthropic.json`；确认目录下直接有该文件 |
 | 内网地址访问失败 | 证书、代理或网络策略 | 确认本机能访问 tracking URI；必要时配置代理与 CA |
 
 ### 6.2 Codex
 
-| 现象 | 可能原因 | 处理方式 |
-| --- | --- | --- |
-| MLflow 中完全看不到 trace | `notify` 钩子未注册 | 检查 `config.toml` 中是否有 `notify = ["mlflow-codex", "notify-hook"]`；setup 遇到已有 `notify` 条目会跳过，需手工添加 |
-| 命令找不到 | `mlflow-codex` 不在 PATH | 重新执行 `npm install -g @mlflow/codex`，用 `which mlflow-codex` 确认 |
-| 钩子执行报错 | Node.js 版本过低 | 使用 Node.js 18 或更新版本 |
-| Trace 写入错误的实验 | 环境变量或 `mlflow-tracing.json` 中的实验 ID 不对 | 检查 `MLFLOW_EXPERIMENT_ID` 与 `./.codex/mlflow-tracing.json`、`~/.codex/mlflow-tracing.json` 三者的取值与优先级 |
-| 认证失败（401） | 凭据未注入到启动 `codex` 的进程环境 | 把 `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD`（或 `MLFLOW_TRACKING_TOKEN`）写入 `~/.bash_profile`，`source` 后新开终端再启动 `codex` |
-| 只看到对话轮次、缺少内部细节 | 使用 `notify` 钩子方式 | 这是预期行为；需要内部执行细节时另行启用 [3.2.6 可选：改用原生 OTLP 上报](#326-可选改用原生-otlp-上报) |
-| 想彻底关闭上报 | — | 删除 `config.toml` 中的 `notify` 行；已产生的 trace 不受影响 |
+Codex 的配置本文档不展开，排查方法见官方文档
+[Tracing Codex CLI — Troubleshooting](https://mlflow.org/docs/latest/genai/tracing/integrations/listing/codex)。
+常见的两类问题与 Claude Code 一致，可直接套用 6.1 的思路：
+
+| 现象 | 处理方式 |
+| --- | --- |
+| MLflow 中完全看不到 trace | 确认 `config.toml` 中 `notify` 钩子已注册（setup 遇到已有 `notify` 条目会跳过，需手工添加） |
+| 认证失败（401） | 凭据要注入到**启动 `codex` 的进程环境**：写入 `~/.bash_profile`，`source` 或新开终端后重启 `codex` |
 
 ### 6.3 Collector
 
