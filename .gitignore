@@ -1,0 +1,8 @@
+# macOS
+.DS_Store
+
+# Claude Code 个人/本地配置（可能包含凭据，不要提交）
+.claude/settings.local.json
+
+# OpenTelemetry Collector 发行包（约 375MB 的二进制，请按文档自行下载解压）
+otelcol-contrib/otelcol-contrib_*/

@@ -1,0 +1,154 @@
+# =============================================================================
+# 多 exporter + routing 分流到不同 MLflow 实验
+# -----------------------------------------------------------------------------
+# 数据流：
+#   Agent Client ──OTLP──▶ Collector ──routing──▶ 按条件分流到不同 MLflow 实验
+#
+# 分流规则（按 resource 属性 service.name 判断）：
+#   service.name == "copilot" / "copilot-chat" ──▶ MLflow 实验 2
+#   其它（未匹配）                              ──▶ MLflow 实验 4（默认）
+#
+# 关键点：
+#   1. 每个实验对应一个独立的 otlp_http exporter，各自固定 x-mlflow-experiment-id。
+#   2. routing connector 负责按条件把数据分发到不同的下游 pipeline。
+#   3. 下游 pipeline 以 routing connector 作为 receiver，再接到对应 exporter。
+#   4. 实验 ID 直接写在各 exporter 的 x-mlflow-experiment-id 中，修改后需重启 Collector。
+#   5. 认证信息不写入配置文件：启动前设置 MLFLOW_TRACKING_AUTH，值为
+#      "Basic <base64(username:password)>"。
+# =============================================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: otel-collector
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["127.0.0.1:8888"]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+  resource:
+    attributes:
+      - key: service.namespace
+        value: otel-collector
+        action: upsert
+      - key: deployment.environment
+        value: production
+        action: upsert
+
+# -----------------------------------------------------------------------------
+# connectors：routing 连接器，按条件把 traces 分发到不同下游 pipeline
+# -----------------------------------------------------------------------------
+connectors:
+  routing:
+    # 未匹配任何 table 条件时，走默认 pipeline（Default）
+    default_pipelines: [traces/default]
+    # 条件表达式出错时的处理：ignore 表示忽略错误、不中断
+    error_mode: ignore
+    table:
+      # 规则 1：Copilot 默认服务名是 copilot-chat，同时兼容显式设置的 copilot
+      - context: resource
+        condition: resource.attributes["service.name"] == "copilot" or resource.attributes["service.name"] == "copilot-chat"
+        pipelines: [traces/copilot]
+      # 未命中以上规则的数据由 default_pipelines 处理（实验 4）
+
+exporters:
+  otlp_http/mlflow-traces-default:
+    traces_endpoint: http://10.203.2.87:5000/v1/traces
+    compression: gzip
+    headers:
+      Authorization: "${env:MLFLOW_TRACKING_AUTH}"
+      x-mlflow-experiment-id: "4"
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+
+  otlp_http/mlflow-traces-copilot:
+    traces_endpoint: http://10.203.2.87:5000/v1/traces
+    compression: gzip
+    headers:
+      Authorization: "${env:MLFLOW_TRACKING_AUTH}"
+      x-mlflow-experiment-id: "2"
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+
+  debug:
+    verbosity: normal
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1777
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: basic
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+
+  pipelines:
+    # 上游入口 pipeline：接收 OTLP，交给 routing connector 分流
+    traces/in:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [routing]
+
+    # 下游 pipeline：以 routing connector 作为 receiver
+    traces/default:
+      receivers: [routing]
+      exporters: [otlp_http/mlflow-traces-default]
+
+    traces/copilot:
+      receivers: [routing]
+      exporters: [otlp_http/mlflow-traces-copilot]
+
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]

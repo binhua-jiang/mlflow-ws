@@ -1,0 +1,24 @@
+{
+  "env": {
+    "MLFLOW_CLAUDE_TRACING_ENABLED": "true",
+    "MLFLOW_TRACKING_URI": "http://10.203.2.87:5000/",
+    "MLFLOW_EXPERIMENT_ID": "6",
+    "MLFLOW_MODEL_CATALOG_URI": "file:///Users/binhua_jiang/mywork/mlflow_ws/model-catalog",
+    "MLFLOW_MODEL_CATALOG_CACHE_TTL": "0"
+  },
+  "extraKnownMarketplaces": {
+    "mlflow-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "mlflow/mlflow",
+        "sparsePaths": [
+          ".claude-plugin",
+          "libs/typescript/integrations/claude-code"
+        ]
+      }
+    }
+  },
+  "enabledPlugins": {
+    "mlflow-tracing@mlflow-plugins": true
+  }
+}
