@@ -933,7 +933,8 @@ VS Code 中的 GitHub Copilot Chat 内置 OpenTelemetry 支持，可以把 Agent
   "github.copilot.chat.otel.enabled": true,
   "github.copilot.chat.otel.exporterType": "otlp-http",
   "github.copilot.chat.otel.otlpEndpoint": "http://localhost:4318",
-  "github.copilot.chat.otel.captureContent": false
+  "github.copilot.chat.otel.captureContent": true,
+  "github.copilot.chat.otel.serviceName": "copilot"
 }
 ```
 
@@ -957,6 +958,7 @@ VS Code 中的 GitHub Copilot Chat 内置 OpenTelemetry 支持，可以把 Agent
 | `github.copilot.chat.otel.enabled` | boolean | `false` | 是否启用 OTel 遥测 |
 | `github.copilot.chat.otel.exporterType` | string | `otlp-http` | 导出协议：`otlp-http`、`otlp-grpc`、`console`、`file` |
 | `github.copilot.chat.otel.otlpEndpoint` | string | `http://localhost:4318` | Collector 的 OTLP 端点 |
+| `github.copilot.chat.otel.serviceName` | string | `""` | 上报数据的 `service.name` 资源属性。未设置时用内置默认值 `copilot-chat`；**`OTEL_SERVICE_NAME` 优先于本设置**。Collector 的 routing 规则按此值分流，见 [4.3.5 服务名与路由](#435-服务名与路由) |
 | `github.copilot.chat.otel.captureContent` | boolean | `false` | 是否上报提示词、响应、工具参数等完整内容 |
 | `github.copilot.chat.otel.captureIdentity` | boolean | `false` | 是否上报账号名、系统用户名、主机名（仅 Local harness） |
 | `github.copilot.chat.otel.maxAttributeSizeChars` | integer | `0` | 单个内容属性的最大字符数；`0` 表示不截断 |
@@ -969,7 +971,9 @@ VS Code 中的 GitHub Copilot Chat 内置 OpenTelemetry 支持，可以把 Agent
 
 - **环境变量始终优先于 VS Code 设置**；企业托管设置会覆盖用户设置，
   但 Copilot Chat 扩展中的 OTel 环境变量仍可覆盖托管值。
-- **服务名由 `OTEL_SERVICE_NAME` 控制**，默认是 `copilot-chat`。
+- **服务名的取值顺序**：企业托管策略 → 环境变量 `OTEL_SERVICE_NAME` → 设置项
+  `github.copilot.chat.otel.serviceName` → 内置默认值 `copilot-chat`。
+  三者都没配时上报的是 `copilot-chat`。
 - **认证头只能通过 `OTEL_EXPORTER_OTLP_HEADERS` 设置**，VS Code 设置中没有 header 配置项，
   例如 `OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer <token>"`。
 - **额外的资源属性**通过 `OTEL_RESOURCE_ATTRIBUTES` 设置，例如
@@ -997,10 +1001,12 @@ Copilot 专用环境变量（需在启动 VS Code 前注入）：
 #### 4.3.5 服务名与路由
 
 Copilot 默认的 `service.name` 是 `copilot-chat`，会命中 `traces/copilot` pipeline，
-写入 **MLflow 实验 2**。若显式设置 `OTEL_SERVICE_NAME=copilot`，同样命中实验 2。
+写入 **MLflow 实验 2**。若把服务名改成 `copilot`——设置项
+`github.copilot.chat.otel.serviceName: "copilot"` 或环境变量 `OTEL_SERVICE_NAME=copilot`
+都可以，两者效果相同（同时设置时环境变量优先）——同样命中实验 2。
 
 如需写入其他实验，可以修改 `config-mlflow-routing.yaml` 中的 routing 规则，
-或为 Copilot 设置不同的 `OTEL_SERVICE_NAME` 并新增对应规则
+或为 Copilot 设置不同的服务名并新增对应规则
 （方法见 [4.2.2.2 新增一个 MLflow 实验的路由](#新增一个-mlflow-实验的路由)）。
 未命中任何规则的客户端会写入默认 pipeline，即 **MLflow 实验 4**。
 
